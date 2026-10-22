@@ -28,3 +28,10 @@
     - ConstructionMaterial
   - type: StaticPrice
     price: 0
+  - type: UserInterface
+    interfaces:
+      enum.FastCraftingUiKey.Key:
+        type: FastCraftingBoundUserInterface
+  - type: ActivatableUI
+    inHandsOnly: true
+    key: enum.FastCraftingUiKey.Key
