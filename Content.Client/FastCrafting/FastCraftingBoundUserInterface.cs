@@ -6,11 +6,12 @@ using JetBrains.Annotations;
 using Robust.Client.UserInterface;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
-using System.Linq;
 using Content.Shared.Construction.Steps;
 using Content.Shared.Materials;
-using Content.Client.Construction.UI;
 using Robust.Client.Placement;
+using Robust.Shared.Utility;
+using Robust.Shared.Enums;
+using System.Linq;
 
 namespace Content.Client.FastCrafting;
 
@@ -19,12 +20,12 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
 {
     [Dependency] private IPrototypeManager _prototypeManager = default!;
     [Dependency] private ConstructionSystem _construction = default!;
-    [Dependency] private ISharedPlayerManager _playerManager = default!;
-    [Dependency] private PopupSystem _popup = default!;
     [Dependency] private IPlacementManager _placementManager = default!;
 
     private SimpleRadialMenu? _menu;
-
+    private List<ConstructionPrototype> _constructionPrototypes = new();
+    private const int ItemsPerPage = 16;
+    private ProtoId<MaterialPrototype> _cachedMaterial = new();
     public FastCraftingBoundUserInterface(EntityUid owner, Enum uiKey) : base(owner, uiKey)
     {
     }
@@ -32,91 +33,125 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
     {
         base.Open();
 
+        if (!IsOpened) // Не работает :(
+            return;
+
         if (!EntMan.TryGetComponent<PhysicalCompositionComponent>(Owner, out var component))
             return;
 
         _menu = this.CreateWindow<SimpleRadialMenu>();
         _menu.Track(Owner);
 
-        var recipes = Test(_prototypeManager.EnumeratePrototypes<ConstructionPrototype>(), component);
-        var ok = ConvertToButtons(recipes);
+        Test(_prototypeManager.EnumeratePrototypes<ConstructionPrototype>(), component);
 
-        _menu.SetButtons(ok);
+        var buttons = BuildRootPage();
+        _menu.SetButtons(buttons);
         _menu.OpenOverMouseScreenPosition();
     }
-    private List<EntProtoId> Test(IEnumerable<ConstructionPrototype> prototypes, PhysicalCompositionComponent component)
+
+    /// <summary>
+    /// Фильтрация нужных прототипов крафта
+    /// </summary>
+    private void Test(IEnumerable<ConstructionPrototype> prototypes, PhysicalCompositionComponent component)
     {
         var material = component.MaterialComposition.ElementAt(0).Key;
-        var recipes = new List<EntProtoId>();
+
+        if (_cachedMaterial == material)
+            return;
+
+        _constructionPrototypes = new();
+        _cachedMaterial = material;
+
         foreach (var prototype in prototypes)
         {
             if (_prototypeManager.TryIndex(prototype.Graph, out ConstructionGraphPrototype? graph) && graph != null)
             {
                 if (!graph.Nodes.TryGetValue("start", out var node))
                     continue;
-                var edge = node.Edges.ElementAt(0);
-                if (edge == null)
-                    continue;
-                var step = edge.Steps.ElementAt(0);
-                if (step == null)
-                    continue;
-                if (step is MaterialConstructionGraphStep materialstep &&
-                materialstep.MaterialPrototypeId == material)
+
+                foreach (var edge in node.Edges)
                 {
-                    if (prototype.Type == ConstructionType.Structure)
-                        recipes.Add(prototype.ID);
-                    continue;
+                    if (edge == null)
+                        continue;
+
+                    if (edge.Target != prototype.TargetNode)
+                        continue;
+
+                    var step = edge.Steps.ElementAt(0);
+
+                    if (step == null)
+                        continue;
+
+                    if (step is MaterialConstructionGraphStep materialstep &&
+                    materialstep.MaterialPrototypeId == material)
+                    {
+                        if (prototype.Type == ConstructionType.Structure)
+                            if (!_constructionPrototypes.Contains(prototype))
+                                _constructionPrototypes.Add(prototype);
+                    }
                 }
+            }
+        }
+    }
 
 
+    /// <summary>
+    /// Сборка ui
+    /// </summary>
+    private List<RadialMenuOptionBase> BuildRootPage()
+    {
+        if (_constructionPrototypes.Count == 0)
+            return new List<RadialMenuOptionBase>();
+
+        var pageCount = (_constructionPrototypes.Count + ItemsPerPage - 1) / ItemsPerPage;
+
+        List<RadialMenuOptionBase>? nextPage = null;
+
+        for (var i = pageCount - 1; i >= 0; i--)
+        {
+            var page = new List<RadialMenuOptionBase>();
+
+            var pageItems = _constructionPrototypes.Skip(i * ItemsPerPage).Take(ItemsPerPage);
+            foreach (var prototype in pageItems)
+            {
+                if (!_construction.TryGetRecipePrototype(prototype.ID, out var targetProtoId))
+                    continue;
+                _prototypeManager.TryIndex(targetProtoId, out var proto);
+
+                page.Add(new RadialMenuActionOption<ConstructionPrototype>(OnItemSelected, prototype)
+                {
+                    IconSpecifier = RadialMenuIconSpecifier.With(targetProtoId),
+                    ToolTip = proto?.Name ?? targetProtoId,
+                });
             }
 
-        }
-        return recipes;
-    }
-
-    private IEnumerable<RadialMenuOptionBase> ConvertToButtons(List<EntProtoId> recipes)
-    {
-        var buttons = new List<RadialMenuOptionBase>();
-        foreach (var recipe in recipes)
-        {
-
-            // Options for selecting identities.
-            var option = new RadialMenuActionOption<EntProtoId>(Aaah, recipe)
+            if (nextPage != null)
             {
-                IconSpecifier = RadialMenuIconSpecifier.With(recipe),
-            };
-            buttons.Add(option);
+                page.Add(new RadialMenuNestedLayerOption(nextPage)
+                {
+                    IconSpecifier = RadialMenuIconSpecifier.With(
+                        new SpriteSpecifier.Texture(new ResPath("/Textures/Interface/Default/right_arrow.svg.192dpi.png"))),
+                    ToolTip = "Вперёд",
+                    Order = 1,
+                });
+            }
 
-            // if (!hasDropOption)
-            //     continue;
-
-            // // the changeling horror can't be dropped, and you can't drop your current identity
-            // var droppable = !EntMan.HasComponent<ChangelingUnremovableIdentityComponent>(identity.Identity) && currentIdentity != identity.Identity;
-
-            // // Options for dropping identities.
-            // var dropOption = new RadialMenuActionOption<NetEntity>(SendIdentityDrop, EntMan.GetNetEntity(identity.Identity.Value))
-            // {
-            //     IconSpecifier = RadialMenuIconSpecifier.With(identity.Identity.Value),
-            //     ToolTip = (currentIdentity == identity.Identity)
-            //         ? Loc.GetString("changeling-transform-bui-drop-identity-cannot-drop")
-            //         : Loc.GetString("changeling-transform-bui-drop-identity-entity", ("entity", identity.Identity)),
-            //     BackgroundColor = droppable ? null : DisabledOptionBackground, // cannot drop your current identity
-            //     HoverBackgroundColor = droppable ? null : DisabledOptionHoverBackground
-            // };
-            // dropButtons.Add(dropOption);
+            nextPage = page;
         }
-        return buttons;
+
+        return nextPage!;
     }
 
-    private void Aaah(EntProtoId entity)
+
+    /// <summary>
+    /// Вызывается при выборе предмета из списка.
+    /// </summary>
+    private void OnItemSelected(ConstructionPrototype constructionPrototype)
     {
-        _popup.PopupCursor(entity.ToString());
+        _placementManager.BeginPlacing(new PlacementInformation()
+        {
+            IsTile = false,
+            PlacementOption = constructionPrototype.PlacementMode
+        }, new ConstructionPlacementHijack(constructionPrototype));
     }
 }
-
-
-
-
-
-
