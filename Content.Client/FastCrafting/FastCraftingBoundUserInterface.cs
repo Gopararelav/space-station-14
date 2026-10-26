@@ -23,7 +23,6 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
     private SimpleRadialMenu? _menu;
     private List<ConstructionPrototype> _constructionPrototypes = new();
     private const int ItemsPerPage = 16;
-    private ProtoId<MaterialPrototype> _cachedMaterial = new();
     public FastCraftingBoundUserInterface(EntityUid owner, Enum uiKey) : base(owner, uiKey)
     {
     }
@@ -53,12 +52,7 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
     private void GetRecipesForMaterial(IEnumerable<ConstructionPrototype> prototypes, PhysicalCompositionComponent component)
     {
         var material = component.MaterialComposition.ElementAt(0).Key;
-
-        if (_cachedMaterial == material)
-            return;
-
         _constructionPrototypes = new();
-        _cachedMaterial = material;
 
         foreach (var prototype in prototypes)
         {
