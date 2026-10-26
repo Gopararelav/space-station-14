@@ -1,10 +1,8 @@
 using Content.Shared.Construction.Prototypes;
-using Content.Client.Popups;
 using Content.Client.UserInterface.Controls;
 using Content.Client.Construction;
 using JetBrains.Annotations;
 using Robust.Client.UserInterface;
-using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Content.Shared.Construction.Steps;
 using Content.Shared.Materials;
@@ -42,7 +40,7 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
         _menu = this.CreateWindow<SimpleRadialMenu>();
         _menu.Track(Owner);
 
-        Test(_prototypeManager.EnumeratePrototypes<ConstructionPrototype>(), component);
+        GetRecipesForMaterial(_prototypeManager.EnumeratePrototypes<ConstructionPrototype>(), component);
 
         var buttons = BuildRootPage();
         _menu.SetButtons(buttons);
@@ -52,7 +50,7 @@ public sealed partial class FastCraftingBoundUserInterface : BoundUserInterface
     /// <summary>
     /// Фильтрация нужных прототипов крафта
     /// </summary>
-    private void Test(IEnumerable<ConstructionPrototype> prototypes, PhysicalCompositionComponent component)
+    private void GetRecipesForMaterial(IEnumerable<ConstructionPrototype> prototypes, PhysicalCompositionComponent component)
     {
         var material = component.MaterialComposition.ElementAt(0).Key;
 
